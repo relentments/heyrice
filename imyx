@@ -1,0 +1,915 @@
+print("SCRIPT RAN")
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService('MarketplaceService')
+local RunService = game:GetService('RunService')
+local TeleportService = game:GetService("TeleportService")
+local UserInputService = game:GetService("UserInputService")
+local placeId = game.PlaceId
+local mouse = LocalPlayer:GetMouse()
+local UserId = LocalPlayer.UserId
+local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local AttackingRemote
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Main = PlayerGui:WaitForChild("Main")
+local Notifications = Main:WaitForChild("Notifications")
+local ChatGui = Main:WaitForChild("Chat")
+local Main2 = ChatGui:WaitForChild("Main")
+local Core = Main2:WaitForChild("Core")
+local CanvasGroup = Core:WaitForChild("CanvasGroup")
+local ChatList = CanvasGroup:WaitForChild("List")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+	if input.KeyCode == Enum.KeyCode.P and not gameProcessedEvent then
+		pcall(function()
+			LocalPlayer.Character.Humanoid:TakeDamage(100)
+		end)
+	end
+end)
+
+local function getRemote()
+	local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+	if not character then return end
+
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	local rightHand = character:FindFirstChild("RightHand")
+	local core = character:FindFirstChild("Core")
+	if not rootPart or not rightHand or not core then return end
+
+	return core:FindFirstChild("Communicate"):FindFirstChildOfClass("RemoteEvent")
+end
+
+local flingEnabled = false
+local fakePart, attachment1, attachment2, alignPosition, particle
+local flingConnections = {}
+local originalPosition = nil
+local distanceCheckConnection = nil
+
+local function stopFling()
+	flingEnabled = false
+	for _, conn in pairs(flingConnections) do
+		if typeof(conn) == 'RBXScriptConnection' then
+			conn:Disconnect()
+		elseif typeof(conn) == 'Instance' and conn:IsA('Instance') then
+			conn:Destroy()
+		end
+	end
+	table.clear(flingConnections)
+	if fakePart then
+		fakePart:Destroy()
+		fakePart = nil
+	end
+	if
+		LocalPlayer.Character
+		and LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+	then
+		local hrp = LocalPlayer.Character.HumanoidRootPart
+		hrp.AssemblyLinearVelocity = Vector3.zero
+		hrp.AssemblyAngularVelocity = Vector3.zero
+		if originalPosition then
+			hrp.CFrame = originalPosition
+		end
+	end
+	if distanceCheckConnection then
+		distanceCheckConnection:Disconnect()
+		distanceCheckConnection = nil
+	end
+end
+
+local function startFling(targetHRP)
+	local localHRP = LocalPlayer.Character
+		and LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+	if not localHRP or not targetHRP then
+		return
+	end
+
+	flingEnabled = true
+	originalPosition = localHRP.CFrame
+
+	fakePart = Instance.new('Part')
+	fakePart.Size = Vector3.new(4, 4, 4)
+	fakePart.Transparency = 1 
+	fakePart.Anchored = false
+	fakePart.CanCollide = false
+	fakePart.Position = localHRP.Position
+	fakePart.Parent = workspace
+
+	attachment1 = Instance.new('Attachment', fakePart)
+	attachment2 = Instance.new('Attachment', localHRP)
+	alignPosition = Instance.new('AlignPosition', fakePart)
+	alignPosition.Attachment0 = attachment2
+	alignPosition.Attachment1 = attachment1
+	alignPosition.RigidityEnabled = true
+	alignPosition.Responsiveness = 200
+	alignPosition.MaxForce = math.huge
+	alignPosition.MaxVelocity = math.huge
+
+	local predictionMultiplier = 0.1
+
+	table.insert(
+		flingConnections,
+		RunService.Heartbeat:Connect(function()
+			if not flingEnabled then
+				return
+			end
+			if
+				not (
+					LocalPlayer.Character
+						and LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+						and targetHRP
+				)
+			then
+				return
+			end
+
+			local predictedPos = targetHRP.Position
+				+ targetHRP.Velocity * predictionMultiplier
+			local predictedCFrame = CFrame.new(
+				predictedPos,
+				predictedPos + targetHRP.CFrame.LookVector
+			)
+
+			localHRP.CFrame = predictedCFrame
+			localHRP.AssemblyLinearVelocity =
+				Vector3.new(5000, 1500, -5000)
+			localHRP.AssemblyAngularVelocity =
+				Vector3.new(8000, 12000, -12000)
+
+		end)
+	)
+
+	distanceCheckConnection = RunService.Heartbeat:Connect(function()
+		if
+			LocalPlayer.Character
+			and LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+			and originalPosition
+		then
+			local dist = (
+				LocalPlayer.Character.HumanoidRootPart.Position
+				- originalPosition.Position
+			).Magnitude
+			if dist >= 1000 then
+				stopFling()
+			end
+		end
+	end)
+end
+
+local Library = loadstring(
+	game:HttpGet(
+		'https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/Library.lua'
+	)
+)()
+
+local Window = Library:CreateWindow({
+	Title = 'L10',
+	Footer = 'v2.0.0',
+	ToggleKeybind = Enum.KeyCode.LeftControl,
+	Center = true,
+	AutoShow = true,
+})
+
+local CombatTab = Window:AddTab("Combat", "sword")
+local CombatRight = CombatTab:AddRightGroupbox("Legit")
+local CombatLeft = CombatTab:AddLeftGroupbox("Blatant")
+
+local TeleportTab = Window:AddTab("Teleport", "sword")
+local TeleportRight = TeleportTab:AddRightGroupbox("SERVERS")
+
+local servers1 = {}
+local servers2 = {}
+
+local TeleportToPROButton = TeleportRight:AddButton({
+	Text = "TP to PRO",
+	Func = function()
+		local success, result = pcall(function()
+			return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/86098085533596/servers/Public?sortOrder=Asc&limit=100"))
+		end)
+		if success and result and result.data then
+			for i, v in ipairs(result.data) do
+				if v.playing < v.maxPlayers and v.id ~= game.JobId then
+					table.insert(servers2, v.id)
+				end
+			end
+		end
+
+		if #servers2 > 0 then
+			local serverid = servers2[math.random(1,#servers2)]
+			TeleportService:TeleportToPlaceInstance(86098085533596, serverid, game.Players.LocalPlayer)
+		end
+	end,
+	DoubleClick = false
+})
+
+local TeleportToVCButton = TeleportRight:AddButton({
+	Text = "TP to VC",
+	Func = function()
+		local success, result = pcall(function()
+			return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/18248633989/servers/Public?sortOrder=Asc&limit=100"))
+		end)
+		if success and result and result.data then
+			for i, v in ipairs(result.data) do
+				if v.playing < v.maxPlayers and v.id ~= game.JobId then
+					table.insert(servers1, v.id)
+				end
+			end
+		end
+
+		if #servers1 > 0 then
+			local serverid = servers1[math.random(1,#servers1)]
+			TeleportService:TeleportToPlaceInstance(18248633989, serverid, game.Players.LocalPlayer)
+		end
+	end,
+	DoubleClick = false
+})
+
+local RejoinButton = TeleportRight:AddButton({
+	Text = "REJOIN",
+	Func = function()
+		TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, game.Players.LocalPlayer)
+	end,
+	DoubleClick = false
+})
+
+local clickFlingConn
+
+local ClickFling = CombatLeft:AddToggle('HitboxExpanderToggle1', {
+	Text = 'Enable Click Fling',
+	Default = false,
+	Tooltip = '',
+	Callback = function(Value)
+		if Value then
+			clickFlingConn = game.Players.LocalPlayer:GetMouse().Button1Down:Connect(function()
+				local mouse = game.Players.LocalPlayer:GetMouse()
+				local target = mouse.Target
+				if not target then return end
+
+				local model = target:FindFirstAncestorOfClass("Model")
+				if not model then return end
+
+				local player = game.Players:GetPlayerFromCharacter(model)
+				if not player or player == game.Players.LocalPlayer then return end
+
+				local targetHRP = model:FindFirstChild("HumanoidRootPart")
+				if not targetHRP then return end
+
+				if flingEnabled then
+					stopFling()
+				end
+
+				startFling(targetHRP)
+			end)
+		else
+			if clickFlingConn then
+				clickFlingConn:Disconnect()
+				clickFlingConn = nil
+			end
+			stopFling()
+		end
+	end,
+})
+
+CombatLeft:AddDivider()
+
+local PlayerDropdown = CombatLeft:AddDropdown("PlayerDropdown", {
+	SpecialType = "Player",
+	Text = "Select Players",
+	Multi = false,
+	ExcludeLocalPlayer = true
+})
+
+local LoopFlingConnection
+local loopFlingActive = false
+
+local LoopFlingPlayer = CombatLeft:AddToggle('LoopFlingPlayer1', {
+	Text = 'Loop Fling Player',
+	Default = false,
+	Tooltip = 'Loop flings until disabled',
+	Callback = function(Value)
+		loopFlingActive = Value
+
+		if loopFlingActive then
+			task.spawn(function()
+				while loopFlingActive do
+					local targetPlayer = PlayerDropdown.Value
+
+					if targetPlayer 
+						and targetPlayer ~= game.Players.LocalPlayer 
+						and targetPlayer.Character 
+						and targetPlayer.Character:FindFirstChild("HumanoidRootPart") 
+						and targetPlayer.Character:FindFirstChild("Humanoid") 
+						and targetPlayer.Character.Humanoid.Health > 0 
+					then
+						local targetHRP = targetPlayer.Character.HumanoidRootPart
+
+						local localChar = game.Players.LocalPlayer.Character
+						local localHum = localChar and localChar:FindFirstChild("Humanoid")
+						local localHRP = localChar and localChar:FindFirstChild("HumanoidRootPart")
+						if not localChar or not localHum or not localHRP or localHum.Health <= 0 then
+							stopFling()
+							repeat
+								task.wait(0.1)
+								localChar = game.Players.LocalPlayer.Character
+								localHum = localChar and localChar:FindFirstChild("Humanoid")
+								localHRP = localChar and localChar:FindFirstChild("HumanoidRootPart")
+							until localChar and localHum and localHRP and localHum.Health > 0
+						end
+
+						if flingEnabled then
+							stopFling()
+							task.wait(0.8)
+						end
+
+						startFling(targetHRP)
+
+						local flingDuration = 5 
+						local elapsed = 0
+						while flingEnabled and elapsed < flingDuration do
+							task.wait(0.1)
+							elapsed += 0.1
+							if not loopFlingActive then break end
+
+							local localChar2 = game.Players.LocalPlayer.Character
+							local localHum2 = localChar2 and localChar2:FindFirstChild("Humanoid")
+							local localHRP2 = localChar2 and localChar2:FindFirstChild("HumanoidRootPart")
+							if not localChar2 or not localHum2 or not localHRP2 or localHum2.Health <= 0 then
+								stopFling()
+								break
+							end
+						end
+
+						stopFling()
+						task.wait(0.5)
+					end
+
+					task.wait(0.3)
+				end
+			end)
+		else
+			stopFling()
+		end
+	end,
+})
+
+
+
+local FlingButton = CombatLeft:AddButton({
+	Text = "Fling Player",
+	Func = function()
+
+		if not PlayerDropdown.Value then return end
+		local targetPlayer = PlayerDropdown.Value
+
+		local targetHRP = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if not targetHRP then return end
+
+		if flingEnabled then
+			stopFling()
+		end
+
+		startFling(targetHRP)
+	end,
+	DoubleClick = true
+})
+
+CombatLeft:AddDivider()
+
+local IngoreFriendsToggle1a
+
+local loopFlingAllActive = false
+
+local LoopFlingEveryone = CombatLeft:AddToggle('LoopFlingEveryone', {
+	Text = 'Loop Fling Everyone',
+	Default = false,
+	Tooltip = 'Loop flings all players until disabled',
+	Callback = function(Value)
+		loopFlingAllActive = Value
+
+		if loopFlingAllActive then
+			task.spawn(function()
+				while loopFlingAllActive do
+					for _, targetPlayer in ipairs(game.Players:GetPlayers()) do
+						if not loopFlingAllActive then break end
+
+						if IngoreFriendsToggle1a.Value and LocalPlayer:IsFriendsWith(targetPlayer.UserId) then
+							continue
+						end
+
+						if targetPlayer ~= LocalPlayer then
+							local char = targetPlayer.Character
+							local hrp = char and char:FindFirstChild("HumanoidRootPart")
+							local humanoid = char and char:FindFirstChild("Humanoid")
+
+							if hrp and humanoid and humanoid.Health > 0 then
+								if flingEnabled then
+									stopFling()
+									task.wait(0.3)
+								end
+
+								startFling(hrp)
+
+								local flingDuration = 15
+								local elapsed = 0
+								while flingEnabled and elapsed < flingDuration do
+									task.wait(0.1)
+									elapsed += 0.1
+									if not loopFlingAllActive then break end
+
+									local localChar = LocalPlayer.Character
+									local localHRP = localChar and localChar:FindFirstChild("HumanoidRootPart")
+									local localHum = localChar and localChar:FindFirstChild("Humanoid")
+									if not localChar or not localHRP or not localHum or localHum.Health <= 0 then
+										stopFling()
+										repeat
+											task.wait(0.1)
+											localChar = LocalPlayer.Character
+											localHRP = localChar and localChar:FindFirstChild("HumanoidRootPart")
+											localHum = localChar and localChar:FindFirstChild("Humanoid")
+										until localChar and localHRP and localHum and localHum.Health > 0
+										break 
+									end
+								end
+
+								stopFling()
+								task.wait(0.5) 
+							end
+						end
+					end
+					task.wait(0.5)
+				end
+			end)
+		else
+			stopFling()
+		end
+	end,
+})
+
+IngoreFriendsToggle1a = CombatLeft:AddToggle('IngoreFriendsToggle1', {
+	Text = 'Enable Ingore Friends',
+	Default = false,
+})
+
+CombatLeft:AddDivider()
+
+local locations = {
+	Leaderboards = Vector3.new(-202, 5, 55),
+	Hallway = Vector3.new(-200, 5, 123),
+	Library = Vector3.new(-120, 5, 148),
+	Cafeteria = Vector3.new(-341, 5, 116),
+	Gym = Vector3.new(-201, 5, -12),
+	Arena = Vector3.new(-107, 5, -32),
+	Outside1 = Vector3.new(-199, 7, -155),
+	Outside2 = Vector3.new(-313, 7, -157),
+	Roof = Vector3.new(-201, 42, -8),
+}
+
+local LocationsDropdown = CombatLeft:AddDropdown("LocationsDropdown1", {
+	Values = {"Leaderboards", "Hallway", "Library", "Cafeteria", "Gym", "Arena", "Outside1", "Outside2", "Roof"},
+	Default = 1, 
+	Multi = false,
+	Text = "Select Location",
+	Tooltip = "Choose a location to teleport",
+	Callback = function(Value)
+		local pos = locations[Value]
+	end
+})
+
+local TeleportToLocation = CombatLeft:AddButton({
+	Text = "Teleport to Location",
+	Func = function()
+		pcall(function()
+			local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid:TakeDamage(100)
+			end
+
+			local char = LocalPlayer.CharacterAdded:Wait()
+			local hrp = char:WaitForChild("HumanoidRootPart")
+			local pos = locations[LocationsDropdown.Value]
+
+			task.wait(0.067)
+
+			if pos then
+				char:MoveTo(pos)
+			end
+		end)
+	end,
+	DoubleClick = true
+})
+
+local PlayerDropdown2 = CombatLeft:AddDropdown("PlayerDropdown2a", {
+	SpecialType = "Player",
+	Text = "Select Player to Teleport",
+	Multi = false,
+	ExcludeLocalPlayer = true
+})
+
+local TeleportToPlayer = CombatLeft:AddButton({
+	Text = "Teleport to Player",
+	Func = function()
+		pcall(function()
+			local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid:TakeDamage(100)
+			end
+
+			local char = LocalPlayer.CharacterAdded:Wait()
+			local hrp = char:WaitForChild("HumanoidRootPart")
+
+			local targetPlr = PlayerDropdown2.Value
+			if not targetPlr then
+				return
+			end
+
+			if not targetPlr.Character then
+				return
+			end
+
+			local Tchar = targetPlr.Character
+			local THrp = Tchar:FindFirstChild("HumanoidRootPart")
+
+			task.wait(0.067)
+
+			if THrp.Position then
+				char:MoveTo(THrp.Position)
+			end
+		end)
+	end,
+	DoubleClick = true
+})
+
+local charaddedconn1
+local RespawnTeleportPlayer = CombatLeft:AddToggle('RespawnTeleportPlayer1', {
+	Text = 'Respawn Teleport Player',
+	Default = false,
+	Tooltip = 'auto tps to the selected player when u revive',
+	Callback = function(Value)
+		if Value then
+			if charaddedconn1 then
+				charaddedconn1:Disconnect()
+				charaddedconn1 = nil
+			end
+
+			charaddedconn1 = LocalPlayer.CharacterAdded:Connect(function(char)
+				local hrp = char:WaitForChild("HumanoidRootPart")
+
+				local targetPlr = PlayerDropdown2.Value
+				if not targetPlr then
+					return
+				end
+
+				if not targetPlr.Character then
+					return
+				end
+
+				local Tchar = targetPlr.Character
+				local THrp = Tchar:FindFirstChild("HumanoidRootPart")
+
+				task.wait(0.067)
+
+				if THrp.Position then
+					char:MoveTo(THrp.Position)
+				end
+			end)
+		else
+			if charaddedconn1 then
+				charaddedconn1:Disconnect()
+				charaddedconn1 = nil
+			end
+		end
+	end,
+})
+
+CombatLeft:AddDivider()
+
+local savedPos = nil
+
+local SaveCurrentPosition = CombatLeft:AddButton({
+	Text = "Save Position",
+	Func = function()
+		pcall(function()
+			local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				savedPos = hrp.Position
+			end
+		end)
+	end,
+	DoubleClick = true
+})
+
+local TeleportToSavedPosition = CombatLeft:AddButton({
+	Text = "Teleport to Saved Position",
+	Func = function()
+		pcall(function()
+			local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid:TakeDamage(100)
+			end
+
+			local char = LocalPlayer.CharacterAdded:Wait()
+			local hrp = char:WaitForChild("HumanoidRootPart")
+
+			task.wait(0.067)
+
+			if savedPos then
+				char:MoveTo(savedPos)
+			end
+		end)
+	end,
+	DoubleClick = true
+})
+
+local HitboxExpanderToggle = CombatRight:AddToggle('HitboxExpanderToggle1', {
+	Text = 'Enable Hitbox Expander',
+	Default = false,
+	Tooltip = '',
+	Callback = function(Value)
+
+	end,
+})
+
+local HitboxSlider = CombatRight:AddSlider('HitboxSlider1', {
+	Text = 'Size of Hitbox',
+	Default = 6.7,
+	Min = 3,
+	Max = 12,
+	Rounding = 3,
+	Compact = false,
+	Callback = function(Value)
+	end,
+})
+
+local TransparencySlider = CombatRight:AddSlider('TransparencySlider1', {
+	Text = 'Hitbox Transparency',
+	Default = 0.5,
+	Min = 0,
+	Max = 1,
+	Rounding = 1,
+	Compact = false,
+	Callback = function(Value)
+	end,
+})
+
+CombatRight:AddDivider()
+local autoweaveconn
+local AutoWeaveToggle = CombatRight:AddToggle('AutoWeaveToggle1', {
+	Text = 'Enable Auto Weave',
+	Default = false,
+	Tooltip = 'credits to nun',
+	Callback = function(Value)
+	end,
+})
+
+local WeaveInterval = CombatRight:AddSlider('WeaveInterval1', {
+	Text = 'Weave Interval',
+	Default = 0.20,
+	Min = 0.1,
+	Max = 0.5,
+	Rounding = 3,
+	Compact = false,
+	Callback = function(Value)
+	end,
+})
+
+local MicroWeaveInterval = CombatRight:AddSlider('MicroWeaveInterval1', {
+	Text = 'Micro Weave Interval',
+	Default = 0.0002,
+	Min = 0.0001,
+	Max = 0.001,
+	Rounding = 6,
+	Compact = false,
+	Callback = function(Value)
+	end,
+})
+
+task.spawn(function()
+	while true do
+		wait(MicroWeaveInterval.Value)
+		pcall(function()
+			if AutoWeaveToggle.Value == true then
+				local re = getRemote()
+				re:FireServer("Weave", nil, true)
+				task.wait(WeaveInterval.Value)
+				re:FireServer("Weave", nil, false)
+			end
+		end)
+	end
+end)
+
+local legitConn
+local LegitAutoWeaveToggle = CombatRight:AddToggle('AutoWeaveToggle1', {
+	Text = 'Enable Legit Auto Weave',
+	Default = false,
+	Tooltip = ' PC ONLY weaves when you press left mouse button',
+	Callback = function(Value)
+		if Value then
+			if not legitConn then
+				legitConn = mouse.Button1Down:Connect(function()
+					pcall(function()
+						local re = getRemote()
+						re:FireServer("Weave", nil, true)
+						task.wait(0.15)
+						re:FireServer("Weave", nil, false)
+					end)
+				end)
+			end
+		else
+			if legitConn then
+				legitConn:Disconnect()
+				legitConn = nil
+			end
+		end
+	end,
+})
+
+CombatRight:AddDivider()
+
+local AutoSpinToggle = CombatRight:AddToggle('AutoSpinToggle1', {
+	Text = 'Enable Auto Spin',
+	Default = false,
+	Tooltip = 'Rotates the character - BUGGY DONT USE',
+	Callback = function(Value)
+	end,
+})
+
+local SpinSpeedSlider = CombatRight:AddSlider('SpinSpeedSlider1', {
+	Text = 'Spin Speed',
+	Default = 5,
+	Min = 1,
+	Max = 60,
+	Rounding = 3,
+	Compact = false,
+	Callback = function(Value)
+	end,
+})
+
+CombatRight:AddDivider()
+
+local fastPunchConn
+local animPlayedConn
+local validNames = { ["1"] = true, ["2"] = true, ["3"] = true, ["4"] = true }
+local tracked = {}
+
+local FastPunchSlider = CombatRight:AddSlider("FastPunchSlider1", {
+	Text = "Punch Speed",
+	Default = 1,
+	Min = 1,
+	Max = 2.4,
+	Rounding = 3,
+	Compact = false,
+	Callback = function(Value)
+	end,
+})
+
+local function setupAnimator(character)
+	local humanoid = character:WaitForChild("Humanoid")
+	local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
+
+	if animPlayedConn then animPlayedConn:Disconnect() end
+	if fastPunchConn then fastPunchConn:Disconnect() end
+
+	tracked = {}
+
+	animPlayedConn = animator.AnimationPlayed:Connect(function(track)
+		pcall(function()
+			if validNames[track.Name] then
+				tracked[track] = true
+				track:AdjustSpeed(FastPunchSlider.Value)
+			end
+		end)
+	end)
+
+	fastPunchConn = RunService.Heartbeat:Connect(function()
+		pcall(function()
+			for track in pairs(tracked) do
+				if track.IsPlaying then
+					track:AdjustSpeed(FastPunchSlider.Value)
+				else
+					tracked[track] = nil
+				end
+			end
+		end)
+	end)
+end
+
+if LocalPlayer.Character then
+	setupAnimator(LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(setupAnimator)
+
+local FastPunchToggle = CombatRight:AddToggle("FastPunchToggle1", {
+	Text = "Enable Fast Punch",
+	Default = false,
+	Tooltip = "Faster anim speed",
+	Callback = function(Value)
+		if Value then
+			if LocalPlayer.Character then
+				setupAnimator(LocalPlayer.Character)
+			end
+		else
+			if animPlayedConn then animPlayedConn:Disconnect() animPlayedConn = nil end
+			if fastPunchConn then fastPunchConn:Disconnect() fastPunchConn = nil end
+
+			pcall(function()
+				local character = LocalPlayer.Character
+				if not character then return end
+				local humanoid = character:FindFirstChildOfClass("Humanoid")
+				if not humanoid then return end
+				local animator = humanoid:FindFirstChildOfClass("Animator")
+				if not animator then return end
+
+				for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+					if validNames[track.Name] then
+						track:AdjustSpeed(1)
+					end
+				end
+			end)
+		end
+	end,
+})
+
+task.spawn(function()
+	RunService.Heartbeat:Connect(function()
+		if HitboxExpanderToggle.Value then
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= Players.LocalPlayer then
+					local char = plr.Character
+					if not char then continue end
+
+					local part = char:FindFirstChild("HumanoidRootPart")
+					if part and part:IsA("BasePart") then
+						local rootSize = HitboxSlider.Value
+						part.Size = Vector3.new(rootSize, rootSize, rootSize)
+						part.Transparency = TransparencySlider.Value
+						part.CanCollide = false
+					end
+				end
+			end
+		else
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= Players.LocalPlayer then
+					local char = plr.Character
+					if not char then continue end
+
+					local part = char:FindFirstChild("HumanoidRootPart")
+					if part and part:IsA("BasePart") then
+						local originalSize = part:FindFirstChild("OriginalSize")
+						if originalSize then
+							part.Size = originalSize.Value
+						end
+						part.CanCollide = true
+					end
+				end
+			end
+		end
+	end)
+end)
+
+
+task.spawn(function()
+	local angle = 0
+	RunService.RenderStepped:Connect(function()
+		pcall(function()
+			if AutoSpinToggle.Value then
+				local character = LocalPlayer.Character
+				local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local hasFight = character:FindFirstChild("Fight") and character:FindFirstChildWhichIsA("Tool")
+				if hasFight and humanoid and rootPart then
+					humanoid.AutoRotate = false
+					local spinAmount = SpinSpeedSlider.Value
+					angle -= math.rad(spinAmount)
+					rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, angle, 0)
+				end
+			end
+		end)
+	end)
+end)
+
+ChatList.ChildAdded:Connect(function(msg)
+	if msg:IsA("Frame") then
+		local mainChatCell = msg:FindFirstChild("Main")
+		if not mainChatCell then return end
+
+		local labelChatCell = mainChatCell:FindFirstChild("Label")
+		if not labelChatCell then return end
+
+		local text = labelChatCell.Text:lower()
+
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr.Name == LocalPlayer.Name or plr.DisplayName == LocalPlayer.DisplayName then
+				if string.find(text, plr.Name:lower()) then
+					local command = string.match(text, "^.-: /(.*)")
+					if command then
+						if command:find("rejoin") then
+							TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, game.Players.LocalPlayer)
+						end
+					end
+				end
+			end
+		end
+	end
+end)
